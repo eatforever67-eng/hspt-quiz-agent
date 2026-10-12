@@ -1,0 +1,267 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HSPT Vocabulary Lab</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #0b1020;
+      color: #edf2ff;
+      font-family: Arial, sans-serif;
+    }
+    main { max-width: 760px; margin: auto; padding: 28px 18px; }
+    header { border-bottom: 1px solid #29334d; padding-bottom: 20px; }
+    .tag { color: #83a7ff; font-size: 12px; letter-spacing: 2px; }
+    h1 { margin-bottom: 8px; }
+    p { color: #aab6d0; line-height: 1.5; }
+    section {
+      background: #141d32;
+      border: 1px solid #29334d;
+      border-radius: 14px;
+      padding: 20px;
+      margin-top: 20px;
+    }
+    input, textarea, button {
+      width: 100%;
+      border-radius: 9px;
+      padding: 12px;
+      margin-top: 10px;
+      font-size: 15px;
+    }
+    input, textarea {
+      background: #0b1020;
+      border: 1px solid #394764;
+      color: white;
+    }
+    button {
+      background: #7c9cff;
+      color: #10182b;
+      border: 0;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    button:disabled { opacity: .5; cursor: default; }
+    .secondary { background: #293650; color: white; }
+    .question { margin-bottom: 22px; }
+    .choice {
+      display: block;
+      text-align: left;
+      background: #202c45;
+      color: white;
+      border: 1px solid #394764;
+      font-weight: normal;
+    }
+    .choice.selected { outline: 2px solid #91adff; }
+    .choice.correct {
+      background: #164b37;
+      border-color: #44c78a;
+    }
+    .choice.wrong {
+      background: #572b36;
+      border-color: #ff7585;
+    }
+    .notice { font-size: 13px; }
+    #quiz, #results { display: none; }
+    .score { font-size: 32px; font-weight: bold; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="tag">STUDY SYSTEM / 001</div>
+    <h1>HSPT Vocabulary Lab</h1>
+    <p>Turn vocabulary lists into practice quizzes.</p>
+  </header>
+
+  <section id="setup">
+    <h2>01 / Add vocabulary</h2>
+    <p>Upload a page photo to preview it, or paste vocabulary entries in this format:</p>
+    <p><code>abundant (adj) plentiful</code></p>
+    <input id="photo" type="file" accept="image/*">
+    <p id="photoStatus" class="notice">Photo selected: none</p>
+    <textarea id="words" rows="7"
+      placeholder="abundant (adj) plentiful&#10;admire (v) respect&#10;pride (n) satisfaction in oneself"></textarea>
+    <button id="build">Build 10-question quiz</button>
+    <p id="message" class="notice" aria-live="polite"></p>
+  </section>
+
+  <section id="quiz">
+    <div class="tag" id="counter"></div>
+    <h2 id="question"></h2>
+    <div id="choices"></div>
+    <button id="next">Next question</button>
+  </section>
+
+  <section id="results">
+    <div class="tag">QUIZ COMPLETE</div>
+    <h2>Your results</h2>
+    <div class="score" id="score"></div>
+    <p id="summary"></p>
+    <div id="review"></div>
+    <button id="restart" class="secondary">Create another quiz</button>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+
+let questions = [];
+let current = 0;
+let answers = [];
+
+$("photo").addEventListener("change", () => {
+  const file = $("photo").files[0];
+  $("photoStatus").textContent = file
+    ? `Selected: ${file.name}. Automatic photo reading will be added with the backend.`
+    : "Photo selected: none";
+});
+
+function shuffle(array) {
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
+  return array;
+}
+
+function parseWords(text) {
+  return text.split("\n").map(line => {
+    const match = line.trim().match(
+      /^(.+?)\s*\((n|v|adj|adv)\)\s*(.+)$/i
+    );
+    if (!match) return null;
+    return {
+      word: match[1].trim(),
+      pos: match[2].toLowerCase(),
+      synonym: match[3].trim()
+    };
+  }).filter(Boolean);
+}
+
+function escapeHTML(text) {
+  return String(text).replace(/[&<>"']/g, c => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;",
+    '"': "&quot;", "'": "&#39;"
+  })[c]);
+}
+
+$("build").addEventListener("click", () => {
+  const entries = parseWords($("words").value);
+  $("message").textContent = "";
+
+  if (entries.length < 10) {
+    $("message").textContent =
+      `I found ${entries.length} valid entries. Paste at least 10 to build this quiz.`;
+    return;
+  }
+
+  if (new Set(entries.map(e => e.word.toLowerCase())).size !== entries.length) {
+    $("message").textContent =
+      "There are duplicate words. Please remove duplicates before continuing.";
+    return;
+  }
+
+  questions = shuffle([...entries]).slice(0, 10).map(entry => {
+    const otherSynonyms = entries
+      .filter(e => e.word.toLowerCase() !== entry.word.toLowerCase())
+      .map(e => e.synonym)
+      .filter(s => s.toLowerCase() !== entry.synonym.toLowerCase());
+
+    const unique = [...new Set(otherSynonyms)];
+    if (unique.length < 2) return null;
+
+    const wrong = shuffle(unique).slice(0, 2);
+    return {
+      ...entry,
+      options: shuffle([entry.synonym, ...wrong])
+    };
+  });
+
+  if (questions.some(q => !q)) {
+    $("message").textContent = "Not enough distinct synonyms to build the quiz.";
+    questions = [];
+    return;
+  }
+
+  current = 0;
+  answers = Array(questions.length).fill(null);
+  $("setup").style.display = "none";
+  $("results").style.display = "none";
+  $("quiz").style.display = "block";
+  renderQuestion();
+});
+
+function renderQuestion() {
+  const q = questions[current];
+  $("counter").textContent = `QUESTION ${current + 1} / ${questions.length}`;
+  $("question").textContent = `Choose the synonym for “${q.word}”`;
+  $("choices").replaceChildren();
+
+  q.options.forEach(option => {
+    const button = document.createElement("button");
+    button.className = "choice";
+    button.textContent = option;
+    button.addEventListener("click", () => {
+      answers[current] = option;
+      [...$("choices").children].forEach(b => {
+        b.classList.toggle("selected", b === button);
+      });
+    });
+    $("choices").appendChild(button);
+  });
+
+  $("next").textContent =
+    current === questions.length - 1 ? "Finish quiz" : "Next question";
+}
+
+$("next").addEventListener("click", () => {
+  if (answers[current] === null) {
+    alert("Choose an answer first.");
+    return;
+  }
+  if (current < questions.length - 1) {
+    current++;
+    renderQuestion();
+  } else {
+    showResults();
+  }
+});
+
+function showResults() {
+  $("quiz").style.display = "none";
+  $("results").style.display = "block";
+
+  let score = 0;
+  $("review").replaceChildren();
+
+  questions.forEach((q, i) => {
+    const correct = answers[i] === q.synonym;
+    if (correct) score++;
+
+    const block = document.createElement("div");
+    block.className = "question";
+    block.innerHTML =
+      `<strong>${i + 1}. ${escapeHTML(q.word)}</strong><p></p>`;
+    const detail = block.querySelector("p");
+    detail.textContent = correct
+      ? `Correct: ${q.synonym}`
+      : `Your answer: ${answers[i]} | Correct answer: ${q.synonym}`;
+    detail.style.color = correct ? "#66e0a4" : "#ff8d9a";
+    $("review").appendChild(block);
+  });
+
+  $("score").textContent = `${score} / ${questions.length}`;
+  $("summary").textContent = `You scored ${Math.round(score / questions.length * 100)}%.`;
+}
+
+$("restart").addEventListener("click", () => {
+  $("results").style.display = "none";
+  $("setup").style.display = "block";
+});
+</script>
+</body>
+</html>
